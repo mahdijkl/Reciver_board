@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ESP Wi-Fi Manager</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" type="text/css" href="style.css" />
+  </head>
+  <body>
+    <div class="topnav">
+      <h1>ESP Wi-Fi Manager</h1>
+    </div>
+    <div class="content">
+      <div class="card-grid">
+        <div class="card">
+          <form action="/" method="POST">
+            <p>
+              <label for="ssid">SSID</label>
+              <input type="text" id="ssid" name="ssid" /><br />
+              <label for="pass">Password</label>
+              <input type="text" id="pass" name="pass" /><br />
+              <label for="ip">IP Address</label>
+              <input
+                type="text"
+                id="ip"
+                name="ip"
+                value="192.168.1.200"
+              /><br />
+              <label for="gateway">Gateway Address</label>
+              <input
+                type="text"
+                id="gateway"
+                name="gateway"
+                value="192.168.1.1"
+              /><br />
+              <label for="serverUrl">Server Url</label>
+              <input
+                type="text"
+                id="serverUrl"
+                name="serverUrl"
+                value="http://185.97.117.218/api/motion"
+              /><br />
+              <label for="apikey">apikey</label>
+              <input
+                type="text"
+                id="apikey"
+                name="apikey"
+                value="16d7a4fca7442dda3ad93c9a726597e4"
+              /><br />
+              <label for="telegramApiToken">telegram Api Token</label>
+              <input
+                type="text"
+                id="telegramApiToken"
+                name="telegramApiToken"
+                value="188428767:AEhcC4SpIDyZbMHeqgU8OAWeaJGF4KqzGIFGDVVn"
+              /><br />
+              <label for="telegramChatId">Telegram Chat Id</label>
+              <input
+                type="text"
+                id="telegramChatId"
+                name="telegramChatId"
+                value="1292108244"
+              /><br />
+              <input type="submit" value="Submit" />
+            </p>
+          </form>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
