@@ -21,14 +21,13 @@ String telegramApiToken;
 String telegramChatId;
 String telegramUrl;
 
-// Timer variables
 unsigned long previousMillis = 0;
 const long interval = 10000; // interval to wait for Wi-Fi connection (milliseconds)
 
 bool motionDetected = false;
 bool motionStopped = false;
 
-const int LED_PIN = 19;
+const int LED_PIN = 14;
 const int BUTTON_PIN = 12;
 
 typedef struct struct_message
@@ -48,7 +47,6 @@ WifiChannel myData;
 std::queue<struct_message> messageQueue;
 esp_now_peer_info_t peerInfo;
 
-// Initialize LittleFS
 void initLittleFS()
 {
   if (!LittleFS.begin(true))
@@ -58,7 +56,6 @@ void initLittleFS()
   Serial.println("LittleFS mounted successfully");
 }
 
-// Read File from LittleFS
 String readFile(fs::FS &fs, const char *path)
 {
   Serial.printf("Reading file: %s\r\n", path);
@@ -81,7 +78,6 @@ String readFile(fs::FS &fs, const char *path)
   return fileContent;
 }
 
-// Write file to LittleFS
 void writeFile(fs::FS &fs, const char *path, const char *message)
 {
   Serial.printf("Writing file: %s\r\n", path);
@@ -102,7 +98,6 @@ void writeFile(fs::FS &fs, const char *path, const char *message)
   }
 }
 
-// Delete File from LittleFS
 void deleteFile(fs::FS &fs, const char *path)
 {
   Serial.printf("Deleting file: %s\r\n", path);
@@ -132,21 +127,21 @@ void postTelegramMessage(String message)
     while (httpResponseCode <= 0 && retryCount < 3)
     {
       retryCount++;
-      Serial.print("Retrying POST request... Attempt: ");
-      Serial.println(retryCount);
+      // Serial.print("Retrying POST request... Attempt: ");
+      // Serial.println(retryCount);
       httpResponseCode = http.POST(postData);
     }
-    if (httpResponseCode > 0)
-    {
-      String response = http.getString();
-      Serial.println(httpResponseCode);
-      Serial.println(response);
-    }
-    else
-    {
-      Serial.print("Error on sending POST: ");
-      Serial.println(httpResponseCode);
-    }
+    // if (httpResponseCode > 0)
+    // {
+    //   String response = http.getString();
+    //   Serial.println(httpResponseCode);
+    //   Serial.println(response);
+    // }
+    // else
+    // {
+    //   Serial.print("Error on sending POST: ");
+    //   Serial.println(httpResponseCode);
+    // }
 
     http.end();
   }
@@ -168,42 +163,78 @@ void postMessage(String message)
     while (httpResponseCode <= 0 && retryCount < 3)
     {
       retryCount++;
-      Serial.print("Retrying POST request... Attempt: ");
-      Serial.println(retryCount);
+      // Serial.print("Retrying POST request... Attempt: ");
+      // Serial.println(retryCount);
       httpResponseCode = http.POST(postData);
     }
 
-    if (httpResponseCode > 0)
-    {
-      String response = http.getString();
-      Serial.println(httpResponseCode);
-      Serial.println(response);
-    }
-    else
-    {
-      Serial.print("Error on sending POST: ");
-      Serial.println(httpResponseCode);
-    }
+    // if (httpResponseCode > 0)
+    // {
+    //   String response = http.getString();
+    //   Serial.println(httpResponseCode);
+    //   Serial.println(response);
+    // }
+    // else
+    // {
+    //   Serial.print("Error on sending POST: ");
+    //   Serial.println(httpResponseCode);
+    // }
 
     http.end();
   }
 }
 
+bool isSent = false;
+bool isFinished = false;
 void sendCallback(const uint8_t *macAddr, esp_now_send_status_t status)
 {
   Serial.print("Send Status: ");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
-  if ((!(status == ESP_NOW_SEND_SUCCESS)) && retryEspNowCount < 70)
+  Serial.print(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
+  Serial.print(" on channel ");
+  Serial.println(WiFi.channel());
+
+  if (status == ESP_NOW_SEND_SUCCESS)
   {
-    retryEspNowCount++;
-    esp_now_send(sensorNodeMacAddress, (uint8_t *)&myData, sizeof(myData));
+    isSent = true;
   }
+  isFinished = true;
 }
 
 void onReceive(const uint8_t *macAddr, const uint8_t *data, int len)
 {
   memcpy(&incomingData, data, sizeof(incomingData));
   messageQueue.push(incomingData);
+}
+int tmpChannel;
+
+void sendChannelNumber()
+{
+  WiFi.disconnect();
+  for (int i = 0; i < 65; i++)
+  {
+    if (isSent)
+    {
+      break;
+    }
+    tmpChannel = (i % 13) + 1;
+    esp_wifi_set_channel(tmpChannel, WIFI_SECOND_CHAN_NONE);
+    esp_err_t result = esp_now_send(sensorNodeMacAddress, (uint8_t *)&myData, sizeof(myData));
+    if (result == ESP_OK)
+    {
+      Serial.println("Sent with success");
+    }
+    else
+    {
+      Serial.print("Error sending the data: ");
+      Serial.println(result);
+    }
+
+    while (!isFinished)
+    {
+      delay(200);
+    }
+    isFinished = false;
+  }
 }
 
 void setupESPNow()
@@ -223,21 +254,44 @@ void setupESPNow()
     Serial.println("Failed to add peer");
     return;
   }
-  Serial.print("WiFi channel: ");
-  Serial.println(WiFi.channel());
 
   myData.wifiChannel = WiFi.channel();
-  esp_err_t result = esp_now_send(sensorNodeMacAddress, (uint8_t *)&myData, sizeof(myData));
-  if (result == ESP_OK)
+  sendChannelNumber();
+  esp_now_deinit();
+  WiFi.mode(WIFI_AP);
+  while (WiFi.status() != WL_CONNECTED)
   {
-    Serial.println("Sent with success");
-    retryEspNowCount = 0;
+    WiFi.mode(WIFI_AP);
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    delay(500);
+    Serial.print(".");
   }
-  else
+  Serial.print("channel: ");
+
+  Serial.println(WiFi.channel());
+  if (esp_now_init() != ESP_OK)
   {
-    Serial.print("Error sending the data: ");
-    Serial.println(result);
+    Serial.println("Error initializing ESP-NOW");
+    return;
   }
+  esp_now_register_recv_cb(onReceive);
+}
+
+int getWiFiChannel(const char *ssidName)
+{
+  int channel = 0;
+  int n = WiFi.scanNetworks(false, true);
+
+  for (int i = 0; i < n; i++)
+  {
+    if (strcmp(ssidName, WiFi.SSID(i).c_str()) == 0)
+    {
+      channel = WiFi.channel(i);
+      break;
+    }
+  }
+
+  return channel;
 }
 
 bool initWiFi()
@@ -366,6 +420,8 @@ void setup()
   pinMode(BUTTON_PIN, INPUT);
   initLittleFS();
   loadValue();
+  Serial.print(ssid + " channel: ");
+  Serial.println(getWiFiChannel(ssid.c_str()));
 
   if (!initWiFi())
   {
