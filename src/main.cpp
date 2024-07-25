@@ -1,4 +1,5 @@
 #include <Arduino.h>
+
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -17,9 +18,6 @@ String ssid;
 String pass;
 String serverUrl;
 String apiKey;
-String telegramApiToken;
-String telegramChatId;
-String telegramUrl;
 
 unsigned long previousMillis = 0;
 const long interval = 10000; // interval to wait for Wi-Fi connection (milliseconds)
@@ -30,21 +28,21 @@ bool motionStopped = false;
 const int LED_PIN = 14;
 const int BUTTON_PIN = 12;
 
-typedef struct struct_message
+typedef struct income_message
 {
   bool motionDetected;
-} struct_message;
+} income_message;
 
-struct_message incomingData;
+income_message incomingData;
 
-typedef struct WifiChannel
+typedef struct outcome_message
 {
   int32_t wifiChannel;
-} WifiChannel;
+} outcome_message;
 
-WifiChannel myData;
+outcome_message myData;
 
-std::queue<struct_message> messageQueue;
+std::queue<income_message> messageQueue;
 esp_now_peer_info_t peerInfo;
 
 void initLittleFS()
@@ -111,42 +109,6 @@ void deleteFile(fs::FS &fs, const char *path)
   }
 }
 
-void postTelegramMessage(String message)
-{
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    HTTPClient http;
-    telegramUrl = "https://tapi.bale.ai/bot" + telegramApiToken + "/sendMessage";
-    http.begin(telegramUrl);
-    http.addHeader("Content-Type", "application/json");
-
-    String postData = "{\"chat_id\":\"" + telegramChatId + "\",\"text\":\"" + message + "\"}";
-
-    int httpResponseCode = http.POST(postData);
-    int retryCount = 0;
-    while (httpResponseCode <= 0 && retryCount < 3)
-    {
-      retryCount++;
-      // Serial.print("Retrying POST request... Attempt: ");
-      // Serial.println(retryCount);
-      httpResponseCode = http.POST(postData);
-    }
-    // if (httpResponseCode > 0)
-    // {
-    //   String response = http.getString();
-    //   Serial.println(httpResponseCode);
-    //   Serial.println(response);
-    // }
-    // else
-    // {
-    //   Serial.print("Error on sending POST: ");
-    //   Serial.println(httpResponseCode);
-    // }
-
-    http.end();
-  }
-}
-
 void postMessage(String message)
 {
   if (WiFi.status() == WL_CONNECTED)
@@ -159,26 +121,12 @@ void postMessage(String message)
 
     int httpResponseCode = http.POST(postData);
     int retryCount = 0;
-
     while (httpResponseCode <= 0 && retryCount < 3)
     {
       retryCount++;
-      // Serial.print("Retrying POST request... Attempt: ");
-      // Serial.println(retryCount);
       httpResponseCode = http.POST(postData);
     }
-
-    // if (httpResponseCode > 0)
-    // {
-    //   String response = http.getString();
-    //   Serial.println(httpResponseCode);
-    //   Serial.println(response);
-    // }
-    // else
-    // {
-    //   Serial.print("Error on sending POST: ");
-    //   Serial.println(httpResponseCode);
-    // }
+    Serial.println("response code: " + String(httpResponseCode));
 
     http.end();
   }
@@ -205,11 +153,46 @@ void onReceive(const uint8_t *macAddr, const uint8_t *data, int len)
   memcpy(&incomingData, data, sizeof(incomingData));
   messageQueue.push(incomingData);
 }
+
+int getWiFiChannel(const char *ssidName)
+{
+  int channel = 0;
+  int n = WiFi.scanNetworks(false, true);
+
+  for (int i = 0; i < n; i++)
+  {
+    if (strcmp(ssidName, WiFi.SSID(i).c_str()) == 0)
+    {
+      channel = WiFi.channel(i);
+      break;
+    }
+  }
+
+  return channel;
+}
+
 int tmpChannel;
 
 void sendChannelNumber()
 {
-  WiFi.disconnect();
+  WiFi.mode(WIFI_AP);
+
+  if (esp_now_init() != ESP_OK)
+  {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+  esp_now_register_send_cb(sendCallback);
+  memcpy(peerInfo.peer_addr, sensorNodeMacAddress, 6);
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK)
+  {
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  myData.wifiChannel = getWiFiChannel(ssid.c_str());
   for (int i = 0; i < 65; i++)
   {
     if (isSent)
@@ -231,10 +214,11 @@ void sendChannelNumber()
 
     while (!isFinished)
     {
-      delay(200);
+      delay(10);
     }
     isFinished = false;
   }
+  esp_now_deinit();
 }
 
 void setupESPNow()
@@ -245,53 +229,6 @@ void setupESPNow()
     return;
   }
   esp_now_register_recv_cb(onReceive);
-  esp_now_register_send_cb(sendCallback);
-  memcpy(peerInfo.peer_addr, sensorNodeMacAddress, 6);
-  peerInfo.encrypt = false;
-
-  if (esp_now_add_peer(&peerInfo) != ESP_OK)
-  {
-    Serial.println("Failed to add peer");
-    return;
-  }
-
-  myData.wifiChannel = WiFi.channel();
-  sendChannelNumber();
-  esp_now_deinit();
-  WiFi.mode(WIFI_AP);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    WiFi.mode(WIFI_AP);
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.print("channel: ");
-
-  Serial.println(WiFi.channel());
-  if (esp_now_init() != ESP_OK)
-  {
-    Serial.println("Error initializing ESP-NOW");
-    return;
-  }
-  esp_now_register_recv_cb(onReceive);
-}
-
-int getWiFiChannel(const char *ssidName)
-{
-  int channel = 0;
-  int n = WiFi.scanNetworks(false, true);
-
-  for (int i = 0; i < n; i++)
-  {
-    if (strcmp(ssidName, WiFi.SSID(i).c_str()) == 0)
-    {
-      channel = WiFi.channel(i);
-      break;
-    }
-  }
-
-  return channel;
 }
 
 bool initWiFi()
@@ -303,7 +240,6 @@ bool initWiFi()
   }
 
   WiFi.mode(WIFI_AP);
-
   WiFi.begin(ssid.c_str(), pass.c_str());
 
   Serial.println("Connecting to WiFi...");
@@ -320,7 +256,7 @@ bool initWiFi()
       return false;
     }
   }
-
+  Serial.println("Connected to WiFi.");
   Serial.println(WiFi.localIP());
 
   return true;
@@ -330,9 +266,7 @@ void initialSetup()
 {
 
   Serial.println("Setting AP (Access Point)");
-
   WiFi.softAP("ESP-WIFI-MANAGER", "password");
-
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address: ");
   Serial.println(IP);
@@ -374,18 +308,7 @@ void initialSetup()
             Serial.println(apiKey);
             writeFile(LittleFS, "/apikey.txt", apiKey.c_str());
           }
-          if (p->name() == "telegramApiToken") {
-            telegramApiToken = p->value().c_str();
-            Serial.print("telegramApiToken set to: ");
-            Serial.println(telegramApiToken);
-            writeFile(LittleFS, "/telegramApiToken.txt", telegramApiToken.c_str());
-          }
-          if (p->name() == "telegramChatId") {
-            telegramChatId = p->value().c_str();
-            Serial.print("telegramChatId set to: ");
-            Serial.println(telegramChatId);
-            writeFile(LittleFS, "/telegramChatId.txt", telegramChatId.c_str());
-          }
+
         }
       }
       request->send(200, "text/plain", "Done. ESP will restart.");
@@ -400,8 +323,6 @@ void loadValue()
   pass = readFile(LittleFS, "/pass.txt");
   serverUrl = readFile(LittleFS, "/serverUrl.txt");
   apiKey = readFile(LittleFS, "/apikey.txt");
-  telegramApiToken = readFile(LittleFS, "/telegramApiToken.txt");
-  telegramChatId = readFile(LittleFS, "/telegramChatId.txt");
 }
 
 void resetModule()
@@ -423,6 +344,8 @@ void setup()
   Serial.print(ssid + " channel: ");
   Serial.println(getWiFiChannel(ssid.c_str()));
 
+  sendChannelNumber();
+
   if (!initWiFi())
   {
     initialSetup();
@@ -441,19 +364,17 @@ void loop()
   }
   while (!messageQueue.empty())
   {
-    struct_message msg = messageQueue.front();
+    income_message msg = messageQueue.front();
     messageQueue.pop();
 
     if (msg.motionDetected)
     {
       digitalWrite(LED_PIN, HIGH);
-      postTelegramMessage("Motion detected!");
       postMessage("1");
     }
     else
     {
       digitalWrite(LED_PIN, LOW);
-      postTelegramMessage("Motion stopped!");
       postMessage("0");
     }
     delay(1000);
